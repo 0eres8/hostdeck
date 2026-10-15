@@ -1,0 +1,71 @@
+name: Release
+
+# Push a tag such as v0.1.0 (matching the version in Cargo.toml) to publish a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Building on the oldest supported Ubuntu keeps the glibc requirement low,
+    # so the package installs on Ubuntu 24.04 and newer.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libdbus-1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build package
+        run: |
+          cargo install cargo-deb --locked --version 3.8.0
+          cargo deb
+          mkdir dist
+          cp target/debian/hostdeck_*_amd64.deb "dist/hostdeck_${VERSION}_amd64.deb"
+          cp target/debian/hostdeck_*_amd64.deb dist/hostdeck_amd64.deb
+          cd dist && for f in *.deb; do sha256sum "$f" > "$f.sha256"; done
+
+      - name: Smoke test on Ubuntu 24.04
+        run: |
+          sudo apt-get install -y ./dist/hostdeck_amd64.deb
+          hostdeck --version
+
+      - name: Smoke test on Ubuntu 26.04
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" ubuntu:26.04 bash -ec '
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /dist/hostdeck_amd64.deb >/dev/null
+            hostdeck --version
+            command -v xfreerdp3 ssh'
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          Install or update Hostdeck on Ubuntu 24.04 or newer:
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | bash
+          \`\`\`
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Hostdeck $VERSION" --notes-file notes.md

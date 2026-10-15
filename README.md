@@ -6,10 +6,18 @@ desktops open through FreeRDP.
 
 ## Install
 
+On Ubuntu 24.04 or newer (and Debian-based systems with FreeRDP 3), one command installs
+Hostdeck with everything it needs:
+
 ```bash
-sudo apt install openssh-client freerdp3-x11   # connection clients
-./install.sh                                   # installs to ~/.local, adds a menu entry
+curl -fsSL https://raw.githubusercontent.com/0eres8/hostdeck/main/install.sh | bash
 ```
+
+No curl? Use `wget -qO- https://raw.githubusercontent.com/0eres8/hostdeck/main/install.sh | bash`.
+
+The script downloads the latest release package, verifies its checksum and installs it with
+apt, which also installs OpenSSH and FreeRDP. Run the same command again to update.
+Uninstall with `sudo apt remove hostdeck`.
 
 Then start **Hostdeck** from the applications menu, or run `hostdeck`.
 
@@ -24,6 +32,17 @@ sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libx
 cargo build --release
 cargo test
 ```
+
+## Releasing
+
+Bump `version` in `Cargo.toml`, commit, then tag and push:
+
+```bash
+git tag v0.2.0 && git push origin main v0.2.0
+```
+
+GitHub Actions builds the `.deb` on Ubuntu 24.04, smoke-tests it on 24.04 and 26.04, and
+publishes the release that the install command downloads.
 
 ## Host management
 

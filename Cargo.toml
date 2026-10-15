@@ -2,6 +2,9 @@
 name = "hostdeck"
 version = "0.1.0"
 edition = "2024"
+description = "SSH and RDP connection manager"
+license = "MIT"
+repository = "https://github.com/0eres8/hostdeck"
 
 [dependencies]
 alacritty_terminal = "0.26"
@@ -20,3 +23,25 @@ uuid = { version = "1.28.0", features = ["v4", "serde"] }
 [profile.release]
 strip = true
 codegen-units = 4
+
+[package.metadata.deb]
+maintainer = "0eres8 <r.schrekker@prometrix.nl>"
+copyright = "2026, 0eres8"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+Hostdeck organizes SSH and RDP connections in folders and opens SSH sessions in \
+tabs with a built-in terminal. Remote desktops open through FreeRDP. Passwords \
+are kept in the desktop keyring."""
+section = "net"
+priority = "optional"
+# Graphics and input libraries are loaded at runtime, so they are listed explicitly.
+depends = "$auto, openssh-client, freerdp3-x11, libxkbcommon0, libxkbcommon-x11-0, libx11-6, libxcursor1, libxrandr2, libxi6, libgl1, libegl1, libwayland-client0, libwayland-egl1"
+recommends = "gnome-keyring | kwalletmanager"
+assets = [
+    ["target/release/hostdeck", "usr/bin/", "755"],
+    ["assets/hostdeck.desktop", "usr/share/applications/", "644"],
+    ["assets/hostdeck.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["README.md", "usr/share/doc/hostdeck/", "644"],
+    ["assets/fonts/Inter-LICENSE.txt", "usr/share/doc/hostdeck/", "644"],
+    ["assets/fonts/JetBrainsMono-LICENSE.txt", "usr/share/doc/hostdeck/", "644"],
+]
