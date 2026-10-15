@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hostdeck
+GenericName=SSH and RDP Connection Manager
+Comment=Organize and open SSH terminals and remote desktops
+Exec=hostdeck
+Icon=hostdeck
+Terminal=false
+Categories=Network;RemoteAccess;System;
+Keywords=ssh;rdp;remote;desktop;terminal;sessions;mobaxterm;
+StartupWMClass=hostdeck

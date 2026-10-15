@@ -1,0 +1,22 @@
+[package]
+name = "hostdeck"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alacritty_terminal = "0.26"
+anyhow = "1.0.104"
+dirs = "7.0.0"
+eframe = "0.36"
+egui-phosphor = "0.14"
+keyring = "4.2.0"
+regex = "1.13.1"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+shlex = "2.0.1"
+toml = "1.1.8"
+uuid = { version = "1.28.0", features = ["v4", "serde"] }
+
+[profile.release]
+strip = true
+codegen-units = 4
