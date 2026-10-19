@@ -1,8 +1,8 @@
 # Hostdeck
 
 A modern SSH and RDP connection manager for Linux, written in Rust. Hostdeck keeps your
-hosts organized in folders and opens SSH sessions in tabs with a built-in terminal. Remote
-desktops open through FreeRDP.
+hosts organized in folders and opens SSH sessions and remote desktops in tabs, with a
+built-in terminal and a built-in RDP client.
 
 ## Install
 
@@ -16,8 +16,8 @@ curl -fsSL https://raw.githubusercontent.com/0eres8/hostdeck/main/install.sh | b
 No curl? Use `wget -qO- https://raw.githubusercontent.com/0eres8/hostdeck/main/install.sh | bash`.
 
 The script downloads the latest release package, verifies its checksum and installs it with
-apt, which also installs OpenSSH and FreeRDP. Run the same command again to update.
-Uninstall with `sudo apt remove hostdeck`.
+apt, which also installs OpenSSH, and FreeRDP for sessions that open in a separate window.
+Run the same command again to update. Uninstall with `sudo apt remove hostdeck`.
 
 Then start **Hostdeck** from the applications menu, or run `hostdeck`.
 
@@ -76,12 +76,24 @@ Tabs: **Ctrl+Tab** / **Ctrl+Shift+Tab** switch, **Ctrl+Shift+D** duplicates, **C
 
 ## RDP
 
-Uses FreeRDP 3 (`xfreerdp3`); the remote desktop opens in its own window and the tab shows
-its status, a clear reason when a connection fails, and the FreeRDP log.
+Remote desktops open in a tab, just like SSH sessions, with Hostdeck's built-in RDP client
+(based on [IronRDP](https://github.com/Devolutions/IronRDP)). The remote desktop resizes with
+the Hostdeck window.
 
-- Domain, fit-to-window (dynamic resolution), fullscreen with multi-monitor, or a fixed size
-- Scaling (100/140/180 %), clipboard sharing, home folder as a drive, sound redirection
-- Admin console, RD Gateway, certificate policy (trust on first use by default)
+- Network Level Authentication with local and domain accounts: fill in the domain on the Login
+  tab, or type `DOMAIN\user` as the username
+- Keyboard and mouse pass-through, including the wheel; **Ctrl+Alt+Del** from the toolbar
+- Text copied on either side can be pasted on the other
+- Scaling (100/140/180 %) on top of the display scale of this computer
+- Server certificates are trusted on first use and checked before the password is sent; a
+  changed certificate is shown with its fingerprint and only accepted when you choose to
+- A clear reason when a connection fails, and a connection log
+
+A session can also open in a separate FreeRDP 3 window (`xfreerdp3`) instead, set under
+**RDP options → Open in**. Use that for sound, sharing your home folder as a drive, an RD
+Gateway, multiple monitors or extra FreeRDP arguments.
+
+- Fit-to-window (dynamic resolution), fullscreen with multi-monitor, or a fixed size
 - Fullscreen sessions show a bar at the top edge to minimize, leave fullscreen or disconnect;
   **Ctrl+Alt+Enter** also toggles fullscreen
 - The password is passed to FreeRDP on stdin, never on the command line
@@ -90,8 +102,7 @@ Set `HOSTDECK_RDP_CLIENT` to use another FreeRDP binary (for example `sdl-freerd
 
 ## Not included yet
 
-Compared with MobaXterm, this first version does not have: remote desktops embedded inside a
-tab, an SFTP file browser, a built-in X server (use X11 forwarding with your desktop's X/XWayland),
+Compared with MobaXterm, this version does not have: an SFTP file browser, a built-in X server (use X11 forwarding with your desktop's X/XWayland),
 Telnet/VNC/serial/FTP sessions, split terminals, multi-execution, macros, or mouse reporting
 for terminal apps (mouse clicks in `htop`, `mc` or `tmux` mouse mode). The MobaXterm importer
 reads names, folders, hosts, ports, users and key files; it does not read MobaXterm's stored

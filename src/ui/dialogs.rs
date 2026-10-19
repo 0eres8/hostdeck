@@ -304,6 +304,11 @@ fn login_tab(ed: &mut Editor, ui: &mut egui::Ui, store: &Store, p: &Palette, key
 
         if ed.draft.credential.is_none() {
             text_row(ui, "Username", &mut ed.draft.username, "Leave empty to use your local username or ssh config");
+        }
+        if ed.draft.protocol == Protocol::Rdp {
+            text_row(ui, "Domain", &mut ed.draft.rdp.domain, "CORP (optional, or type CORP\\user as username)");
+        }
+        if ed.draft.credential.is_none() {
             ui.label("Password");
             if ui.add(egui::TextEdit::singleline(&mut ed.password).password(true).desired_width(f32::INFINITY)).changed() {
                 ed.password_dirty = true;
@@ -401,35 +406,12 @@ fn ssh_tab(ed: &mut Editor, ui: &mut egui::Ui, p: &Palette) {
 fn rdp_tab(ed: &mut Editor, ui: &mut egui::Ui, p: &Palette) {
     let o = &mut ed.draft.rdp;
     form_grid(ui, "rdp", |ui| {
-        text_row(ui, "Domain", &mut o.domain, "CORP (optional)");
-        ui.label("Display");
-        let label = match o.resolution {
-            RdpResolution::FitWindow => "Fit to window",
-            RdpResolution::Fullscreen => "Fullscreen",
-            RdpResolution::Fixed => "Fixed size",
-        };
-        egui::ComboBox::from_id_salt("res").selected_text(label).width(200.0).show_ui(ui, |ui| {
-            ui.selectable_value(&mut o.resolution, RdpResolution::FitWindow, "Fit to window");
-            ui.selectable_value(&mut o.resolution, RdpResolution::Fullscreen, "Fullscreen");
-            ui.selectable_value(&mut o.resolution, RdpResolution::Fixed, "Fixed size");
+        ui.label("Open in");
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut o.embedded, true, format!("{}  Hostdeck tab", icon::APP_WINDOW));
+            ui.selectable_value(&mut o.embedded, false, format!("{}  Separate FreeRDP window", icon::ARROW_SQUARE_OUT));
         });
         ui.end_row();
-        match o.resolution {
-            RdpResolution::Fullscreen => {
-                ui.label("");
-                ui.checkbox(&mut o.multimon, "Use all monitors");
-                ui.end_row();
-            }
-            _ => {
-                ui.label(if o.resolution == RdpResolution::FitWindow { "Initial size" } else { "Size" });
-                ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut o.width).range(640..=7680));
-                    ui.label("×");
-                    ui.add(egui::DragValue::new(&mut o.height).range(480..=4320));
-                });
-                ui.end_row();
-            }
-        }
         ui.label("Scaling");
         egui::ComboBox::from_id_salt("scale").selected_text(format!("{}%", o.scale)).show_ui(ui, |ui| {
             for s in [100, 140, 180] {
@@ -437,27 +419,9 @@ fn rdp_tab(ed: &mut Editor, ui: &mut egui::Ui, p: &Palette) {
             }
         });
         ui.end_row();
-        ui.label("Sound");
-        let audio = match o.audio {
-            RdpAudio::Local => "Play on this computer",
-            RdpAudio::Remote => "Play on the remote computer",
-            RdpAudio::Off => "Off",
-        };
-        egui::ComboBox::from_id_salt("audio").selected_text(audio).width(220.0).show_ui(ui, |ui| {
-            ui.selectable_value(&mut o.audio, RdpAudio::Local, "Play on this computer");
-            ui.selectable_value(&mut o.audio, RdpAudio::Remote, "Play on the remote computer");
-            ui.selectable_value(&mut o.audio, RdpAudio::Off, "Off");
-        });
+        ui.label("Clipboard");
+        ui.checkbox(&mut o.clipboard, if o.embedded { "Share copied text" } else { "Share clipboard" });
         ui.end_row();
-        ui.label("Resources");
-        ui.vertical(|ui| {
-            ui.checkbox(&mut o.clipboard, "Share clipboard");
-            ui.checkbox(&mut o.redirect_home, "Share my home folder as a drive");
-            ui.checkbox(&mut o.admin, "Connect to the admin console");
-        });
-        ui.end_row();
-        text_row(ui, "RD Gateway", &mut o.gateway, "gateway.example.com (optional)");
-        text_row(ui, "Gateway user", &mut o.gateway_user, "Defaults to the session user");
         ui.label("Certificates");
         let cert = match o.cert_policy {
             CertPolicy::Tofu => "Trust on first use",
@@ -470,12 +434,78 @@ fn rdp_tab(ed: &mut Editor, ui: &mut egui::Ui, p: &Palette) {
             ui.selectable_value(&mut o.cert_policy, CertPolicy::Deny, "Reject unknown");
         });
         ui.end_row();
-        text_row(ui, "Extra FreeRDP args", &mut o.extra_args, "/network:lan +fonts");
     });
     ui.add_space(6.0);
-    hint(ui, p, "Remote desktops open in their own window, powered by FreeRDP. Ctrl+Alt+Enter toggles fullscreen.");
-    if o.resolution == RdpResolution::Fullscreen {
-        hint(ui, p, "In fullscreen, a bar at the top edge lets you minimize, leave fullscreen or disconnect.");
+    if o.embedded {
+        hint(ui, p, "The remote desktop opens in a tab and resizes with the Hostdeck window. Text copied on either side can be pasted on the other.");
+        hint(ui, p, "For sound, a shared home folder, an RD Gateway or multiple monitors, open the session in a separate FreeRDP window.");
+    }
+
+    ui.add_space(10.0);
+    ui.label(RichText::new("Separate FreeRDP window").font(theme::semibold(14.0)));
+    if o.embedded {
+        hint(ui, p, "These settings only apply when the session opens in a separate window.");
+    }
+    ui.add_space(4.0);
+    ui.add_enabled_ui(!o.embedded, |ui| {
+        form_grid(ui, "rdp-freerdp", |ui| {
+            ui.label("Display");
+            let label = match o.resolution {
+                RdpResolution::FitWindow => "Fit to window",
+                RdpResolution::Fullscreen => "Fullscreen",
+                RdpResolution::Fixed => "Fixed size",
+            };
+            egui::ComboBox::from_id_salt("res").selected_text(label).width(200.0).show_ui(ui, |ui| {
+                ui.selectable_value(&mut o.resolution, RdpResolution::FitWindow, "Fit to window");
+                ui.selectable_value(&mut o.resolution, RdpResolution::Fullscreen, "Fullscreen");
+                ui.selectable_value(&mut o.resolution, RdpResolution::Fixed, "Fixed size");
+            });
+            ui.end_row();
+            match o.resolution {
+                RdpResolution::Fullscreen => {
+                    ui.label("");
+                    ui.checkbox(&mut o.multimon, "Use all monitors");
+                    ui.end_row();
+                }
+                _ => {
+                    ui.label(if o.resolution == RdpResolution::FitWindow { "Initial size" } else { "Size" });
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut o.width).range(640..=7680));
+                        ui.label("×");
+                        ui.add(egui::DragValue::new(&mut o.height).range(480..=4320));
+                    });
+                    ui.end_row();
+                }
+            }
+            ui.label("Sound");
+            let audio = match o.audio {
+                RdpAudio::Local => "Play on this computer",
+                RdpAudio::Remote => "Play on the remote computer",
+                RdpAudio::Off => "Off",
+            };
+            egui::ComboBox::from_id_salt("audio").selected_text(audio).width(220.0).show_ui(ui, |ui| {
+                ui.selectable_value(&mut o.audio, RdpAudio::Local, "Play on this computer");
+                ui.selectable_value(&mut o.audio, RdpAudio::Remote, "Play on the remote computer");
+                ui.selectable_value(&mut o.audio, RdpAudio::Off, "Off");
+            });
+            ui.end_row();
+            ui.label("Resources");
+            ui.vertical(|ui| {
+                ui.checkbox(&mut o.redirect_home, "Share my home folder as a drive");
+                ui.checkbox(&mut o.admin, "Connect to the admin console");
+            });
+            ui.end_row();
+            text_row(ui, "RD Gateway", &mut o.gateway, "gateway.example.com (optional)");
+            text_row(ui, "Gateway user", &mut o.gateway_user, "Defaults to the session user");
+            text_row(ui, "Extra FreeRDP args", &mut o.extra_args, "/network:lan +fonts");
+        });
+    });
+    if !o.embedded {
+        ui.add_space(6.0);
+        hint(ui, p, "The remote desktop opens in its own window, powered by FreeRDP. Ctrl+Alt+Enter toggles fullscreen.");
+        if o.resolution == RdpResolution::Fullscreen {
+            hint(ui, p, "In fullscreen, a bar at the top edge lets you minimize, leave fullscreen or disconnect.");
+        }
     }
 }
 
@@ -697,6 +727,7 @@ impl App {
                 ui.label("Username");
                 ui.add_enabled(own_login, egui::TextEdit::singleline(&mut pr.username).desired_width(f32::INFINITY));
                 ui.end_row();
+                text_row(ui, "Domain", &mut pr.session.rdp.domain, "Optional");
                 ui.label("Password");
                 let r = ui.add(egui::TextEdit::singleline(&mut pr.password).password(true).desired_width(f32::INFINITY));
                 if pr.focus {
@@ -727,6 +758,7 @@ impl App {
                 if let Some(s) = self.store.session_mut(pr.session.id) {
                     s.save_password = true;
                     s.username = pr.username.clone();
+                    s.rdp.domain = pr.session.rdp.domain.clone();
                 }
                 if let Err(e) = secrets::set(&pr.session.password_key(), &pr.password) {
                     self.toast_error(format!("Could not save the password: {e}"));

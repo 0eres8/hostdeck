@@ -115,6 +115,8 @@ pub enum CertPolicy {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RdpOptions {
+    /// Show the remote desktop in a Hostdeck tab instead of a separate FreeRDP window.
+    pub embedded: bool,
     pub domain: String,
     pub resolution: RdpResolution,
     pub width: u32,
@@ -134,6 +136,7 @@ pub struct RdpOptions {
 impl Default for RdpOptions {
     fn default() -> Self {
         Self {
+            embedded: true,
             domain: String::new(),
             resolution: RdpResolution::FitWindow,
             width: 1600,
@@ -527,5 +530,12 @@ mod tests {
         let text = toml::to_string_pretty(&store).unwrap();
         let back: Store = toml::from_str(&text).unwrap();
         assert_eq!(back.sessions, store.sessions);
+    }
+
+    #[test]
+    fn rdp_sessions_without_the_setting_open_in_a_tab() {
+        let back: Store = toml::from_str("[[sessions]]\nprotocol = \"rdp\"\nhost = \"win01\"\n[sessions.rdp]\ndomain = \"CORP\"\n").unwrap();
+        assert!(back.sessions[0].rdp.embedded);
+        assert_eq!(back.sessions[0].rdp.domain, "CORP");
     }
 }

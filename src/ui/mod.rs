@@ -14,6 +14,8 @@ use uuid::Uuid;
 
 use crate::launch::{self, RdpProcess};
 use crate::model::{self, Protocol, Session, Store};
+use crate::rdp::{self, RdpSession};
+use crate::rdp_view::RdpView;
 use crate::secrets;
 use crate::terminal::Terminal;
 use dialogs::{Confirm, CredentialManager, Editor, FolderDialog, ImportDialog, PasswordPrompt};
@@ -22,6 +24,9 @@ use theme::Palette;
 pub enum TabKind {
     Home,
     Terminal(Box<Terminal>),
+    /// A remote desktop shown inside the tab by the built-in client.
+    Desktop(Box<RdpView>),
+    /// A remote desktop in a separate FreeRDP window.
     Rdp(RdpTab),
 }
 
@@ -51,6 +56,7 @@ impl Tab {
         match &self.kind {
             TabKind::Home => false,
             TabKind::Terminal(t) => t.is_running(),
+            TabKind::Desktop(d) => d.is_running(),
             TabKind::Rdp(r) => r.process.as_ref().is_some_and(|p| p.exit_status().is_none()),
         }
     }
@@ -223,11 +229,48 @@ impl App {
         RdpProcess::spawn(program, &args, password, ctx.clone()).map_err(|e| format!("Could not start FreeRDP: {e}"))
     }
 
-    /// Open an RDP tab, or restart the RDP process of an existing tab.
+    /// Where trusted RDP server certificates are kept, next to the session file.
+    pub(crate) fn rdp_known_hosts(&self) -> PathBuf {
+        self.store_path.with_file_name("rdp_known_hosts")
+    }
+
+    fn spawn_desktop(&self, ctx: &egui::Context, session: &Session, username: &str, password: &str) -> Result<RdpView, String> {
+        let params = rdp::Params {
+            host: session.host.trim().to_string(),
+            port: if session.port == 0 { 3389 } else { session.port },
+            username: username.to_string(),
+            domain: session.rdp.domain.trim().to_string(),
+            password: password.to_string(),
+            clipboard: session.rdp.clipboard,
+            cert_policy: session.rdp.cert_policy,
+            known_hosts: self.rdp_known_hosts(),
+        };
+        RdpSession::spawn(params, ctx.clone())
+            .map(RdpView::new)
+            .map_err(|e| format!("Could not start the RDP session: {e}"))
+    }
+
+    /// Open an RDP tab, or reconnect the RDP session of an existing tab.
     pub(crate) fn open_rdp(&mut self, ctx: &egui::Context, session: Session, username: &str, password: String, tab: Option<u64>) {
         let mut session = session;
         if session.credential.is_none() {
             session.username = username.to_string();
+        }
+        if session.rdp.embedded {
+            match self.spawn_desktop(ctx, &session, username, &password) {
+                Ok(view) => {
+                    let kind = TabKind::Desktop(Box::new(view));
+                    match tab.and_then(|id| self.tabs.iter_mut().find(|t| t.id == id)) {
+                        Some(t) => {
+                            t.kind = kind;
+                            t.password = Some(password);
+                        }
+                        None => self.push_tab(session, Some(password), kind),
+                    }
+                }
+                Err(e) => self.toast_error(e),
+            }
+            return;
         }
         let result = self.spawn_rdp(ctx, &session, username, &password);
         let (process, error) = match result {

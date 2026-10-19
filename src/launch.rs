@@ -74,10 +74,7 @@ pub fn rdp_args(s: &Session, username: &str, domain: &str) -> Vec<String> {
     // FreeRDP splits DOMAIN\user only when no /d: is given; with /d: it sends the whole
     // string as the username and the logon fails. Split it here so a domain typed in the
     // username works whether or not the Domain field is filled in, and takes precedence.
-    let (domain, username) = match username.split_once('\\') {
-        Some((d, u)) => (d, u),
-        None => (domain, username),
-    };
+    let (username, domain) = crate::rdp::split_domain(username, domain);
     if !username.is_empty() {
         a.push(format!("/u:{username}"));
     }

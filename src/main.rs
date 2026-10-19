@@ -3,6 +3,8 @@
 mod import;
 mod launch;
 mod model;
+mod rdp;
+mod rdp_view;
 mod secrets;
 mod terminal;
 mod ui;

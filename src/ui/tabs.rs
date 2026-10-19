@@ -4,12 +4,13 @@ use eframe::egui::{self, Align2, Color32, FontId, Frame, Key, Margin, Modifiers,
 use egui_phosphor::regular as icon;
 use uuid::Uuid;
 
-use super::dialogs::{Editor, ImportDialog, ImportKind};
+use super::dialogs::{Editor, ImportDialog, ImportKind, PasswordPrompt};
 use super::sidebar::protocol_icon;
 use super::theme::{self, session_color, Palette};
 use super::{App, TabKind};
 use crate::launch;
 use crate::model::{now_secs, Protocol, Session};
+use crate::rdp::{self, Phase};
 use crate::terminal::TerminalOptions;
 
 enum TabAction {
@@ -48,13 +49,16 @@ impl App {
             // Give the terminal keyboard focus whenever its tab becomes the active one.
             if self.shown_tab != Some(self.tabs[index].id) {
                 self.shown_tab = Some(self.tabs[index].id);
-                if let TabKind::Terminal(t) = &mut self.tabs[index].kind {
-                    t.focus_requested = true;
+                match &mut self.tabs[index].kind {
+                    TabKind::Terminal(t) => t.focus_requested = true,
+                    TabKind::Desktop(d) => d.focus_requested = true,
+                    _ => {}
                 }
             }
             match &self.tabs[index].kind {
                 TabKind::Home => self.home(ui),
                 TabKind::Terminal(_) => self.terminal_view(ui, index),
+                TabKind::Desktop(_) => self.desktop_view(ui, index),
                 TabKind::Rdp(_) => self.rdp_view(ui, index),
             }
         });
@@ -163,6 +167,8 @@ impl App {
         let status = match &tab.kind {
             TabKind::Terminal(t) if t.is_running() => "Connected".to_string(),
             TabKind::Terminal(t) => format!("Closed (exit code {})", t.exit_code.unwrap_or(-1)),
+            TabKind::Desktop(d) if d.phase() == Phase::Connecting => "Connecting".to_string(),
+            TabKind::Desktop(_) if tab.is_live() => "Connected".to_string(),
             TabKind::Rdp(_) if tab.is_live() => "Remote desktop running".to_string(),
             _ => "Disconnected".to_string(),
         };
@@ -244,6 +250,141 @@ impl App {
         }
         let ctx = ui.ctx().clone();
         if reconnect {
+            self.reconnect(&ctx, index);
+        } else if close {
+            self.close_tab(index);
+        }
+    }
+
+    /// A remote desktop inside the tab: a slim toolbar above the desktop while connected,
+    /// and the reason with reconnect options once the session has ended.
+    fn desktop_view(&mut self, ui: &mut egui::Ui, index: usize) {
+        let p = self.palette.clone();
+        let tab_id = self.tabs[index].id;
+        let session = self.tabs[index].session.clone();
+        let TabKind::Desktop(view) = &mut self.tabs[index].kind else { return };
+        let phase = view.phase();
+
+        let Phase::Ended(end) = phase else {
+            let mut disconnect = false;
+            let mut cad = false;
+            egui::Panel::top(egui::Id::new(("desktop-bar", tab_id)))
+                .frame(Frame::new().fill(p.surface).inner_margin(Margin::symmetric(12, 4)).stroke(Stroke::new(1.0, p.border)))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (dot, text) = match phase {
+                            Phase::Connected => (p.success, "Connected"),
+                            _ => (p.muted, "Connecting…"),
+                        };
+                        ui.label(RichText::new("●").size(10.0).color(dot));
+                        ui.label(RichText::new(text).size(12.5).color(p.muted));
+                        ui.label(RichText::new(session.endpoint()).size(12.5).color(p.muted));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.spacing_mut().button_padding = Vec2::new(8.0, 2.0);
+                            if ui.small_button(format!("{}  Disconnect", icon::X)).clicked() {
+                                disconnect = true;
+                            }
+                            let connected = phase == Phase::Connected;
+                            if ui
+                                .add_enabled(connected, egui::Button::new(format!("{}  Ctrl+Alt+Del", icon::KEYBOARD)).small())
+                                .on_hover_text("Send Ctrl+Alt+Del to the remote desktop")
+                                .clicked()
+                            {
+                                cad = true;
+                            }
+                        });
+                    });
+                });
+            let rect = ui.available_rect_before_wrap();
+            view.ui(ui, session.rdp.scale.max(100), p.bg);
+            if phase == Phase::Connecting {
+                ui.painter().text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    format!("Connecting to {}…", session.display_name()),
+                    FontId::proportional(16.0),
+                    p.muted,
+                );
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+            }
+            if cad {
+                view.ctrl_alt_del();
+            }
+            if disconnect {
+                view.disconnect();
+            }
+            return;
+        };
+
+        let log = view.log_lines();
+        let mut reconnect = false;
+        let mut close = false;
+        let mut trust = None;
+        let mut new_password = false;
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.add_space(48.0);
+            ui.vertical_centered(|ui| {
+                ui.set_max_width(620.0);
+                Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border)).corner_radius(14).inner_margin(Margin::same(28)).show(ui, |ui| {
+                    ui.set_width(560.0);
+                    ui.vertical_centered(|ui| {
+                        let glyph = if end.untrusted_cert.is_some() { icon::SHIELD_WARNING } else { icon::MONITOR };
+                        let color = if end.untrusted_cert.is_some() { p.danger } else { session_color(session.color) };
+                        ui.label(RichText::new(glyph).size(46.0).color(color));
+                        ui.label(RichText::new(session.display_name()).font(theme::semibold(20.0)));
+                        ui.label(RichText::new(session.endpoint()).color(p.muted));
+                        ui.add_space(12.0);
+                        ui.label(RichText::new(&end.headline).color(if end.normal { p.muted } else { p.danger }));
+                        if let Some(why) = &end.detail {
+                            ui.label(why);
+                        }
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            let w = if end.untrusted_cert.is_some() { 400.0 } else if end.normal { 230.0 } else { 370.0 };
+                            ui.add_space((ui.available_width() - w).max(0.0) / 2.0);
+                            if let Some(fp) = &end.untrusted_cert {
+                                let btn = egui::Button::new(RichText::new(format!("{}  Trust and connect", icon::SHIELD_CHECK)).color(Color32::WHITE)).fill(p.danger);
+                                if ui.add(btn).clicked() {
+                                    trust = Some(fp.clone());
+                                }
+                            } else {
+                                let btn = egui::Button::new(RichText::new(format!("{}  Reconnect", icon::ARROW_CLOCKWISE)).color(Color32::WHITE)).fill(p.accent);
+                                if ui.add(btn).clicked() {
+                                    reconnect = true;
+                                }
+                                if !end.normal && ui.button(format!("{}  Other password…", icon::KEY)).clicked() {
+                                    new_password = true;
+                                }
+                            }
+                            if ui.button("Close tab").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+                    if !log.is_empty() {
+                        ui.add_space(12.0);
+                        egui::CollapsingHeader::new(RichText::new("Connection log").color(p.muted)).id_salt(("desktop-log", tab_id)).show(ui, |ui| {
+                            egui::ScrollArea::vertical().max_height(180.0).stick_to_bottom(true).show(ui, |ui| {
+                                for line in &log {
+                                    ui.label(RichText::new(line).monospace().size(11.5).color(p.muted));
+                                }
+                            });
+                        });
+                    }
+                });
+            });
+        });
+        let ctx = ui.ctx().clone();
+        if let Some(fp) = trust {
+            let port = if session.port == 0 { 3389 } else { session.port };
+            match rdp::trust_certificate(&self.rdp_known_hosts(), session.host.trim(), port, &fp) {
+                Ok(()) => self.reconnect(&ctx, index),
+                Err(e) => self.toast_error(format!("Could not save the certificate: {e:#}")),
+            }
+        } else if new_password {
+            let (username, _) = self.login_for(&session);
+            self.prompt = Some(PasswordPrompt::new(session, username, Some(tab_id)));
+        } else if reconnect {
             self.reconnect(&ctx, index);
         } else if close {
             self.close_tab(index);
@@ -364,7 +505,7 @@ impl App {
 
                     let actions: [(&str, &str, &str, u8); 4] = [
                         (icon::TERMINAL_WINDOW, "New SSH session", "Keys, jump hosts and tunnels", 0),
-                        (icon::MONITOR, "New RDP session", "Windows desktops via FreeRDP", 1),
+                        (icon::MONITOR, "New RDP session", "Windows desktops in a tab", 1),
                         (icon::DOWNLOAD_SIMPLE, "Import MobaXterm", "Bring your .mxtsessions export", 2),
                         (icon::FILE_ARROW_UP, "Import ~/.ssh/config", "Every Host alias as a session", 3),
                     ];
