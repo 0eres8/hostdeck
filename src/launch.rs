@@ -71,14 +71,19 @@ pub fn rdp_args(s: &Session, username: &str, domain: &str) -> Vec<String> {
     if s.port != 3389 && s.port != 0 {
         a.push(format!("/port:{}", s.port));
     }
+    // FreeRDP splits DOMAIN\user only when no /d: is given; with /d: it sends the whole
+    // string as the username and the logon fails. Split it here so a domain typed in the
+    // username works whether or not the Domain field is filled in, and takes precedence.
+    let (domain, username) = match username.split_once('\\') {
+        Some((d, u)) => (d, u),
+        None => (domain, username),
+    };
     if !username.is_empty() {
         a.push(format!("/u:{username}"));
     }
-    // Pass a domain so /from-stdin only ever asks for the password, unless the username
-    // already carries one (DOMAIN\user or user@domain), which an empty /d: would clear.
-    if !domain.is_empty() || !username.contains(['\\', '@']) {
-        a.push(format!("/d:{domain}"));
-    }
+    // Always pass a domain, even an empty one: /from-stdin then only asks for the password,
+    // and user@domain is sent as-is with an empty domain, which is what FreeRDP expects.
+    a.push(format!("/d:{domain}"));
     a.push("/from-stdin:force".into());
     a.push(format!("/t:{} — Hostdeck", s.display_name()));
     a.push("/wm-class:hostdeck-rdp".into());
@@ -371,9 +376,22 @@ mod tests {
         let a = rdp_args(&s, "alice", "CORP");
         assert!(a.contains(&"+f".to_string()));
         assert!(a.iter().any(|x| x.starts_with("/floatbar:")));
-        // A domain inside the username must not be cleared by an empty /d:.
-        let a = rdp_args(&s, "CORP\\alice", "");
-        assert!(a.iter().all(|x| !x.starts_with("/d:")));
+    }
+
+    #[test]
+    fn rdp_domain_in_username_is_split() {
+        let mut s = Session::new(Protocol::Rdp, "");
+        s.host = "win01".into();
+        let creds = |a: &[String]| -> Vec<String> {
+            a.iter().filter(|x| x.starts_with("/u:") || x.starts_with("/d:")).cloned().collect()
+        };
+        // DOMAIN\user, with or without the Domain field, never reaches FreeRDP unsplit.
+        assert_eq!(creds(&rdp_args(&s, "CORP\\administrator", "")), ["/u:administrator", "/d:CORP"]);
+        assert_eq!(creds(&rdp_args(&s, "CORP\\administrator", "CORP")), ["/u:administrator", "/d:CORP"]);
+        assert_eq!(creds(&rdp_args(&s, "CORP\\administrator", "OTHER")), ["/u:administrator", "/d:CORP"]);
+        // Local accounts and UPNs get an explicit empty domain.
+        assert_eq!(creds(&rdp_args(&s, "administrator", "")), ["/u:administrator", "/d:"]);
+        assert_eq!(creds(&rdp_args(&s, "admin@corp.example", "")), ["/u:admin@corp.example", "/d:"]);
     }
 
     #[test]
