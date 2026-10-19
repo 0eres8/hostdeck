@@ -82,6 +82,8 @@ its status, a clear reason when a connection fails, and the FreeRDP log.
 - Domain, fit-to-window (dynamic resolution), fullscreen with multi-monitor, or a fixed size
 - Scaling (100/140/180 %), clipboard sharing, home folder as a drive, sound redirection
 - Admin console, RD Gateway, certificate policy (trust on first use by default)
+- Fullscreen sessions show a bar at the top edge to minimize, leave fullscreen or disconnect;
+  **Ctrl+Alt+Enter** also toggles fullscreen
 - The password is passed to FreeRDP on stdin, never on the command line
 
 Set `HOSTDECK_RDP_CLIENT` to use another FreeRDP binary (for example `sdl-freerdp3`).

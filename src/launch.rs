@@ -97,6 +97,9 @@ pub fn rdp_args(s: &Session, username: &str, domain: &str) -> Vec<String> {
         }
         RdpResolution::Fullscreen => {
             a.push("+f".into());
+            // A bar at the top edge with minimize, windowed-mode and close buttons, so a
+            // fullscreen session can always be left with the mouse.
+            a.push("/floatbar:sticky:off,default:visible,show:fullscreen".into());
             if o.multimon {
                 a.push("+multimon".into());
             }
@@ -284,6 +287,10 @@ pub fn explain_rdp_end(code: Option<i32>, log: &[String], user_disconnected: boo
     if user_disconnected {
         return ok("Disconnected", None);
     }
+    // FreeRDP's exit code for a rejected argument varies, so recognize it by its output.
+    if log.iter().any(|l| l.contains("Command line parsing failed") || l.contains("To show full command line help")) {
+        return fail(Some("FreeRDP rejected the arguments. Check the extra FreeRDP arguments."));
+    }
     let from_log = explain_rdp_log(log);
     match code {
         Some(0) | Some(11) => ok("Disconnected", None),
@@ -359,6 +366,11 @@ mod tests {
         assert!(a.contains(&"/u:alice".to_string()));
         assert!(a.contains(&"/d:CORP".to_string()));
         assert!(a.iter().all(|x| !x.starts_with("/p:")));
+        assert!(a.iter().all(|x| !x.starts_with("/floatbar")));
+        s.rdp.resolution = RdpResolution::Fullscreen;
+        let a = rdp_args(&s, "alice", "CORP");
+        assert!(a.contains(&"+f".to_string()));
+        assert!(a.iter().any(|x| x.starts_with("/floatbar:")));
         // A domain inside the username must not be cleared by an empty /d:.
         let a = rdp_args(&s, "CORP\\alice", "");
         assert!(a.iter().all(|x| !x.starts_with("/d:")));
@@ -372,6 +384,11 @@ mod tests {
         assert!(!e.normal);
         assert_eq!(e.detail, Some("The server rejected the username or password."));
         assert!(explain_rdp_end(None, &[], true).normal);
+        let bad_args = vec!["xfreerdp3 /?".to_string(), "To show full command line help type".to_string()];
+        assert_eq!(
+            explain_rdp_end(Some(22), &bad_args, false).detail,
+            Some("FreeRDP rejected the arguments. Check the extra FreeRDP arguments.")
+        );
         assert!(!explain_rdp_end(None, &[], false).normal);
     }
 

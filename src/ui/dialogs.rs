@@ -473,7 +473,10 @@ fn rdp_tab(ed: &mut Editor, ui: &mut egui::Ui, p: &Palette) {
         text_row(ui, "Extra FreeRDP args", &mut o.extra_args, "/network:lan +fonts");
     });
     ui.add_space(6.0);
-    hint(ui, p, "Remote desktops open in their own window, powered by FreeRDP. Press Ctrl+Alt+Enter to toggle fullscreen.");
+    hint(ui, p, "Remote desktops open in their own window, powered by FreeRDP. Ctrl+Alt+Enter toggles fullscreen.");
+    if o.resolution == RdpResolution::Fullscreen {
+        hint(ui, p, "In fullscreen, a bar at the top edge lets you minimize, leave fullscreen or disconnect.");
+    }
 }
 
 impl App {
